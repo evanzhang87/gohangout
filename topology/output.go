@@ -37,6 +37,32 @@ func BuildOutputs(config map[string]interface{}, buildOutput buildOutputFunc) []
 	return rst
 }
 
+func BuildSpecifiedOutputs(config map[string]interface{}, buildOutput buildOutputFunc, outputs []string) []*OutputBox {
+	rst := make([]*OutputBox, 0)
+	outputsBucket := make(map[string]struct{})
+	for _, o := range outputs {
+		outputsBucket[o] = struct{}{}
+	}
+	for _, outputs := range config["outputs"].([]interface{}) {
+		for outputType, outputConfig := range outputs.(map[interface{}]interface{}) {
+			outputType := outputType.(string)
+			klog.Infof("output type: %s", outputType)
+			outputConfig := outputConfig.(map[interface{}]interface{})
+			if name, ok := outputConfig["name"]; ok {
+				_, ok = name.(string)
+				if ok {
+					if _, exist := outputsBucket[name.(string)]; exist {
+						output := buildOutput(outputType, outputConfig)
+						output.promCounter = GetPromCounter(outputConfig)
+						rst = append(rst, output)
+					}
+				}
+			}
+		}
+	}
+	return rst
+}
+
 // Process implement Processor interface
 func (p *OutputBox) Process(event map[string]interface{}) map[string]interface{} {
 	if p.Pass(event) {

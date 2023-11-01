@@ -16,6 +16,7 @@ import (
 type InputBox struct {
 	config             map[string]interface{} // whole config
 	input              topology.Input
+	outputs            []string
 	outputsInAllWorker [][]*topology.OutputBox
 	stop               bool
 	once               sync.Once
@@ -23,8 +24,8 @@ type InputBox struct {
 
 	promCounter prometheus.Counter
 
-	shutdownWhenNil    bool
-	exit 						   func()
+	shutdownWhenNil bool
+	exit            func()
 
 	addFields map[field_setter.FieldSetter]value_render.ValueRender
 }
@@ -36,15 +37,25 @@ func (box *InputBox) SetShutdownWhenNil(shutdownWhenNil bool) {
 }
 
 func NewInputBox(input topology.Input, inputConfig map[interface{}]interface{}, config map[string]interface{}, exit func()) *InputBox {
+	var dstOutputs []string
+	if outputs, ok := inputConfig["outputs"]; ok {
+		if _, ok = outputs.([]string); ok {
+			dstOutputs = outputs.([]string)
+		} else if _, ok = outputs.(string); ok {
+			dstOutputs = append(dstOutputs, outputs.(string))
+		}
+	}
+
 	b := &InputBox{
 		input:        input,
 		config:       config,
+		outputs:      dstOutputs,
 		stop:         false,
 		shutdownChan: make(chan bool, 1),
 
 		promCounter: topology.GetPromCounter(inputConfig),
 
-		exit:        exit,
+		exit: exit,
 	}
 	if add_fields, ok := inputConfig["add_fields"]; ok {
 		b.addFields = make(map[field_setter.FieldSetter]value_render.ValueRender)
@@ -95,7 +106,13 @@ func (box *InputBox) beat(workerIdx int) {
 }
 
 func (box *InputBox) buildTopology(workerIdx int) *topology.ProcessorNode {
-	outputs := topology.BuildOutputs(box.config, output.BuildOutput)
+	var outputs []*topology.OutputBox
+	if len(box.outputs) > 0 {
+		outputs = topology.BuildSpecifiedOutputs(box.config, output.BuildOutput, box.outputs)
+	} else {
+		outputs = topology.BuildOutputs(box.config, output.BuildOutput)
+	}
+
 	box.outputsInAllWorker[workerIdx] = outputs
 
 	var outputProcessor topology.Processor
